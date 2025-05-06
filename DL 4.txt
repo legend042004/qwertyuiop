@@ -1,0 +1,85 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, LSTM
+from tensorflow.keras.optimizers import Adam
+import yfinance as yf
+
+# 1. Load Google stock prices from Yahoo Finance (from 2010 to present)
+data = yf.download('GOOGL', start='2010-01-01', end='2023-01-01')
+
+# 2. Visualize the stock price data
+plt.figure(figsize=(10, 6))
+plt.plot(data['Close'], label='Google Stock Price')
+plt.title('Google Stock Prices (2010-2023)')
+plt.xlabel('Date')
+plt.ylabel('Price (USD)')
+plt.legend()
+plt.show()
+
+# 3. Preprocess the data: Use only the 'Close' price for prediction
+close_data = data['Close'].values.reshape(-1, 1)
+
+# 4. Scale the data to the range [0, 1] using MinMaxScaler
+scaler = MinMaxScaler(feature_range=(0, 1))
+scaled_data = scaler.fit_transform(close_data)
+
+# 5. Create a dataset of sequences to train the RNN
+def create_dataset(data, time_step):
+    x_data, y_data = [], []
+    for i in range(len(data) - time_step - 1):
+        x_data.append(data[i:i + time_step, 0])
+        y_data.append(data[i + time_step, 0])
+    return np.array(x_data), np.array(y_data)
+
+time_step = 60  # 60 previous days to predict the next day
+x_data, y_data = create_dataset(scaled_data, time_step)
+
+# 6. Reshape x_data to fit the RNN input shape (samples, time_steps, features)
+x_data = x_data.reshape(x_data.shape[0], x_data.shape[1], 1)
+
+# 7. Split the data into training and testing sets (80% train, 20% test)
+train_size = int(len(x_data) * 0.8)
+x_train, x_test = x_data[:train_size], x_data[train_size:]
+y_train, y_test = y_data[:train_size], y_data[train_size:]
+
+# 8. Build the RNN model (LSTM in this case)
+model = Sequential([
+    LSTM(units=50, return_sequences=True, input_shape=(x_train.shape[1], 1)),
+    LSTM(units=50, return_sequences=False),
+    Dense(units=1)  # Predicting the next day's stock price
+])
+
+# 9. Compile the model
+model.compile(optimizer=Adam(learning_rate=0.001), loss='mean_squared_error')
+
+# 10. Train the model
+history = model.fit(x_train, y_train, epochs=20, batch_size=32, validation_data=(x_test, y_test), verbose=1)
+
+# 11. Evaluate the model
+train_loss = model.evaluate(x_train, y_train)
+test_loss = model.evaluate(x_test, y_test)
+
+print(f"Train Loss: {train_loss}")
+print(f"Test Loss: {test_loss}")
+
+# 12. Make predictions on the test set
+predictions = model.predict(x_test)
+
+# 13. Reverse the scaling to get the predicted stock prices in the original scale
+predictions = scaler.inverse_transform(predictions)
+y_test_rescaled = scaler.inverse_transform(y_test.reshape(-1, 1))
+
+# 14. Plot the actual vs predicted stock prices
+plt.figure(figsize=(10, 6))
+plt.plot(y_test_rescaled, label='Actual Stock Price')
+plt.plot(predictions, label='Predicted Stock Price')
+plt.title('Google Stock Price Prediction')
+plt.xlabel('Days')
+plt.ylabel('Price (USD)')
+plt.legend()
+plt.show()
+
+pip install tensorflow yfinance matplotlib scikit-learn
